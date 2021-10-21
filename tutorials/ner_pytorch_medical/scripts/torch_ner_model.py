@@ -78,7 +78,7 @@ def init(
         listener = tok2vec.maybe_get_ref("listener")
         t2v_width = listener.maybe_get_dim("nO") if listener else None
     
-    if t2v_width:
+    if t2v_width is not None:
         torch_model.shims[0]._model.set_input_shape(t2v_width)
         torch_model.set_dim("nI", t2v_width)
 
@@ -118,19 +118,25 @@ class TorchEntityRecognizer(nn.Module):
         dropout (float): Dropout ratio (0 - 1.0)
         """
         super(TorchEntityRecognizer, self).__init__()
-        if not nO:
-            nO = 1  # Just for initialization of PyTorch layer. Output shape set during Model.init
+
+        # Just for initialization of PyTorch layer. Output shape set during Model.init
+        nI = nI or 1
+        nO = nO or 1
 
         self.nI = nI
         self.nH = nH
-        self.model = nn.Sequential(OrderedDict({
-            "input_layer": nn.Linear(nI, nH),
-            "input_activation": nn.ReLU(),
-            "input_dropout": nn.Dropout2d(dropout),
-            "output_layer": nn.Linear(nH, nO),
-            "output_dropout": nn.Dropout2d(dropout),
-            "softmax": nn.Softmax(dim=1)
-        }))
+        self.model = nn.Sequential(
+            OrderedDict(
+                {
+                    "input_layer": nn.Linear(nI, nH),
+                    "input_activation": nn.ReLU(),
+                    "input_dropout": nn.Dropout2d(dropout),
+                    "output_layer": nn.Linear(nH, nO),
+                    "output_dropout": nn.Dropout2d(dropout),
+                    "softmax": nn.Softmax(dim=1),
+                }
+            )
+        )
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         """Forward pass of the model.
@@ -138,7 +144,7 @@ class TorchEntityRecognizer(nn.Module):
         RETURNS (torch.Tensor): Batch of results with a score for each tag for each token
         """
         return self.model(inputs)
-    
+
     def _set_layer_shape(self, name: str, nI: int, nO: int):
         """Dynamically set the shape of a layer
         name (str): Layer name
