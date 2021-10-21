@@ -35,6 +35,7 @@ def build_torch_ner_model(
     tok2vec: Model[List[Doc], List[Floats2d]],
     hidden_width: int,
     dropout: Optional[float] = None,
+    nI: Optional[int] = None,
     nO: Optional[int] = None,
 ) -> Model[List[Doc], List[Floats2d]]:
     """Build a tagger model, using a provided token-to-vector component. The tagger
@@ -44,9 +45,10 @@ def build_torch_ner_model(
     nO (int or None): The number of tags to output. Inferred from the data if None.
     RETURNS (Model[List[Doc], List[Floats2d]]): Initialized Model
     """
-    t2v_width = tok2vec.maybe_get_dim("nO")
-    if not t2v_width:
-        t2v_width = 1
+    t2v_width = nI or tok2vec.maybe_get_dim("nO")
+    if t2v_width is None:
+        listener = tok2vec.maybe_get_ref("listener")
+        t2v_width = listener.maybe_get_dim("nO") if listener else None
     torch_model = TorchEntityRecognizer(t2v_width, hidden_width, nO, dropout)
     wrapped_pt_model = PyTorchWrapper(torch_model)
     wrapped_pt_model.attrs["set_dropout_rate"] = torch_model.set_dropout_rate
@@ -69,12 +71,13 @@ def init(
     Y (Optional[List[Ints2d]], optional): Available model labels.
     RETURNS (Model[List[Doc], List[Floats2d]]): Initialized Model
     """
-
     tok2vec = model.get_ref("tok2vec")
     torch_model = model.get_ref("torch_model")
-
-    listener = tok2vec.maybe_get_ref("listener")
-    t2v_width = listener.maybe_get_dim("nO") if listener else None
+    t2v_width = tok2vec.maybe_get_dim("n0")
+    if t2v_width is None:
+        listener = tok2vec.maybe_get_ref("listener")
+        t2v_width = listener.maybe_get_dim("nO") if listener else None
+    
     if t2v_width:
         torch_model.shims[0]._model.set_input_shape(t2v_width)
         torch_model.set_dim("nI", t2v_width)
@@ -118,6 +121,7 @@ class TorchEntityRecognizer(nn.Module):
         if not nO:
             nO = 1  # Just for initialization of PyTorch layer. Output shape set during Model.init
 
+        self.nI = nI
         self.nH = nH
         self.model = nn.Sequential(OrderedDict({
             "input_layer": nn.Linear(nI, nH),
@@ -154,7 +158,6 @@ class TorchEntityRecognizer(nn.Module):
         nI (int): New input layer shape
         """
         self._set_layer_shape("input_layer", nI, self.nH)
-        
 
     def set_output_shape(self, nO: int):
         """Dynamically set the shape of the output layer
